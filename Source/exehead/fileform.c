@@ -55,6 +55,8 @@
 #endif//NSIS_COMPRESS_USE_BZIP2
 #endif//NSIS_CONFIG_COMPRESSION_SUPPORT
 
+TCHAR open_error_msg[1024];
+
 struct block_header g_blocks[BLOCKS_NUM];
 header *g_header;
 int g_flags;
@@ -157,7 +159,7 @@ void handle_ver_dlg(BOOL kill)
 static z_stream g_inflate_stream;
 #endif
 
-const TCHAR * NSISCALL loadHeaders(int cl_flags)
+const TCHAR * NSISCALL loadHeaders(int cl_flags, int* show_err)
 {
   MAXSIZETYPE left;
 #ifdef NSIS_CONFIG_CRC_SUPPORT
@@ -188,17 +190,38 @@ const TCHAR * NSISCALL loadHeaders(int cl_flags)
 #endif//NSIS_CONFIG_CRC_SUPPORT
 
   GetModuleFileName(NULL, state_exe_path, NSIS_MAX_STRLEN);
+
 retry:
   g_db_hFile = db_hFile = myOpenFile(state_exe_path, GENERIC_READ, OPEN_EXISTING);
   if (db_hFile == INVALID_HANDLE_VALUE)
   {
     UINT error = GetLastError();
-    if (error == ERROR_SHARING_VIOLATION && ++opentries <= maxopentries)
-    {
-        Sleep(opentrywait);
-        goto retry;
-    }
-    return _LANG_CANTOPENSELF;
+	wsprintf(open_error_msg,_T("%s (Error %d)"),_LANG_CANTOPENSELF, error);
+	
+    if (error != ERROR_SHARING_VIOLATION)
+		return open_error_msg;
+	
+	if (++opentries <= maxopentries)
+	{
+		Sleep(opentrywait);
+		goto retry;
+	}
+	else
+	{
+		int msgboxID = MessageBox(
+			NULL,
+			(LPCWSTR)open_error_msg,
+			(LPCWSTR)L"Retry?",
+			MB_ICONWARNING | MB_RETRYCANCEL
+		);
+		if (msgboxID != IDRETRY)
+		{
+			*show_err = 0;
+			return open_error_msg;
+		}
+		opentries = 0;
+		goto retry;
+	}
   }
 
   mystrcpy(state_exe_directory, state_exe_path);
